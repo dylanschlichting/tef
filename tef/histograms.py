@@ -5,7 +5,6 @@ from xhistogram.xarray import histogram
 import xarray as xr
 import xroms
 from datetime import datetime
-import sys
 
 def volume_flux(ds, xislice, etaslice):
     '''
@@ -116,33 +115,24 @@ Output:
 Qsvarda: salinity variance transport at each face of the control volume
 svarda: salinity variance at each face of the control volume
     '''
+    
+    eta_rho = slice(50,251)
+    xi_rho = slice(150,351)
+    dV = (ds.dx*ds.dy*ds.dz).isel(eta_rho = etaslice, #Add +1 points so dsvar/dt matches up with variance
+                                  xi_rho = xislice)
  
-    dAu = ds.dy_u*ds.dz_u
-    dAu = dAu.sel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop))
-    
-    dAv = ds.dx_v*ds.dz_v
-    dAv = dAv.sel(eta_v = slice(etaslice.start-1, etaslice.stop), xi_rho = xislice)
-    
-    dAW = dAu.isel(xi_u = 0) 
-    dAE = dAu.isel(xi_u = -1) 
-    dAN = dAv.isel(eta_v = -1) 
-    dAS = dAv.isel(eta_v = 0) 
-    
-    AW = dAW.sum(dim = ['eta_rho','s_rho'])
-    AE = dAE.sum(dim = ['eta_rho','s_rho'])
-    AN = dAN.sum(dim = ['xi_rho','s_rho'])
-    AS = dAS.sum(dim = ['xi_rho','s_rho'])
+    V = dV.sum(dim = ['eta_rho', 's_rho', 'xi_rho'])
+   
+    salt = ds.salt.isel(eta_rho = etaslice, 
+                        xi_rho = xislice)
 
-    sbarW = ((saltda.sW*dAW).sum(dim = ['eta_rho','s_rho']))/AW
-    sbarE = ((saltda.sE*dAE).sum(dim = ['eta_rho','s_rho']))/AE
-    sbarN = ((saltda.sN*dAN).sum(dim = ['xi_rho','s_rho']))/AN
-    sbarS = ((saltda.sS*dAS).sum(dim = ['xi_rho','s_rho']))/AS
-    
-    svarW = ((saltda.sW-sbarW)**2)
-    svarE = ((saltda.sE-sbarE)**2)
-    svarN = ((saltda.sN-sbarN)**2)
-    svarS = ((saltda.sS-sbarS)**2)
-    
+    sbar = (1/V)*(salt*dV).sum(dim = ['eta_rho', 'xi_rho','s_rho'])
+
+    svarW = ((saltda.sW-sbar)**2)
+    svarE = ((saltda.sE-sbar)**2)
+    svarN = ((saltda.sN-sbar)**2)
+    svarS = ((saltda.sS-sbar)**2)
+
     QsvarW = Qda.QW*svarW
     QsvarE = Qda.QE*svarE
     QsvarN = Qda.QN*svarN
@@ -312,15 +302,22 @@ def volflux_hist(saltbins, saltda, Qda):
     return Qh_da
 
 #Load in the data and compute the transport weighted histograms of a specified control volume
-paths = sys.argv[1]
-ds = xroms.open_netcdf(paths, 
-                       chunks = {'ocean_time':1})
+paths = ['/scratch/user/dylan.schlichting/TXLA_Outputs/nested_hourly/ocean_his_child_00001.nc',
+         '/scratch/user/dylan.schlichting/TXLA_Outputs/nested_hourly/ocean_his_child_00002.nc',
+         '/scratch/user/dylan.schlichting/TXLA_Outputs/nested_hourly/ocean_his_child_00003.nc',
+         # '/scratch/user/dylan.schlichting/TXLA_Outputs/nested_hourly/ocean_his_child_00004.nc',
+         # '/scratch/user/dylan.schlichting/TXLA_Outputs/nested_hourly/ocean_his_child_00005.nc',
+        ]
+         
+ds = xroms.open_mfnetcdf(paths, 
+                         chunks = {'ocean_time':1})
 ds, grid = xroms.roms_dataset(ds, 
                               Vtransform = None)
 
-xislice=slice(370,375)
-etaslice=slice(140,145)
-tslice = slice(0,len(ds.ocean_time))
+# xislice=slice(300,310)
+# etaslice=slice(300,310)
+xislice=slice(50,250) #note tendencies have x+1 stopping points
+etaslice=slice(150,350)
 
 print('Isolating control volume and computing tracer fluxes')
 saltda = salt_cv(ds, grid, xislice, etaslice)
@@ -328,7 +325,7 @@ Qda = volume_flux(ds, xislice, etaslice)
 Qsda, Qssda = salt_flux(saltda, Qda)
 svarda,Qsvarda = Qcsvar_faces(ds, grid, saltda, Qda, xislice, etaslice)
 
-saltbins = np.linspace(0,40,101)
+saltbins = np.linspace(0,40,201)
 
 print('Computing histograms')
 #Compute the histograms and add attributes for saving as netcdf
@@ -345,7 +342,7 @@ Qsvarh_da.attrs['Salinity Bins'] = str(len(saltbins)-1)
 Qsvarh_da.attrs['Qsvarh units'] = '(g/kg)^2 m^3 s^-1'
 
 print('Saving salinity variance histograms')
-Qsvarh_da.to_netcdf(path = '../outputs/histograms/Qsvarh_da.nc')
+Qsvarh_da.to_netcdf(path = '../outputs/histograms/Qsvarh_nested_hourly_xi_50250_eta150350_da_s200.nc')
 
 Qssh_da.attrs['Description'] = 'Salinity squared transport weighted histograms'
 Qssh_da.attrs['Author'] = 'Dylan Schlichting'
@@ -355,7 +352,7 @@ Qssh_da.attrs['Salinity Bins'] = str(len(saltbins)-1)
 Qssh_da.attrs['Qssh units'] = '(g/kg)^2 m^3 s^-1'
 
 print('Saving salinity squared histograms')
-Qssh_da.to_netcdf('../outputs/histograms/Qssh_da.nc')
+Qssh_da.to_netcdf('../outputs/histograms/Qssh_nested_hourly_xi_50250_eta150350_da_s200.nc')
 
 Qsh_da.attrs['Description'] = 'Salinity transport weighted histograms'
 Qsh_da.attrs['Author'] = 'Dylan Schlichting'
@@ -365,7 +362,7 @@ Qsh_da.attrs['Salinity Bins'] = str(len(saltbins)-1)
 Qsh_da.attrs['Qsh units'] = '(g/kg) m^3 s^-1'
 
 print('Saving salinity histograms')
-Qsh_da.to_netcdf('../outputs/histograms/Qsh_da.nc')
+Qsh_da.to_netcdf('../outputs/histograms/Qsh_nested_hourly_xi_50250_eta150350_da_200.nc')
 
 Qh_da.attrs['Description'] = 'Volume transport weighted histograms'
 Qh_da.attrs['Author'] = 'Dylan Schlichting'
@@ -375,4 +372,4 @@ Qh_da.attrs['Salinity Bins'] = str(len(saltbins)-1)
 Qh_da.attrs['Q units'] = 'm^3 s^-1'
 
 print('Saving volume histograms')
-Qh_da.to_netcdf('../outputs/histograms/Qh_da.nc')
+Qh_da.to_netcdf('../outputs/histograms/Qh_nested_10min_xi_50250_eta150350_da_s200.nc')

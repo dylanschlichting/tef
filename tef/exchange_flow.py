@@ -6,7 +6,14 @@ import xarray as xr
 import xroms
 from datetime import datetime
 
-ds = xr.open_mfdataset('../outputs/histograms/*.nc')
+#Comment the next four lines out if not using histograms_divided.py 
+# volds = xr.open_mfdataset('../outputs/histograms/Divided_histograms/vol/1001/*.nc')
+# saltds = xr.open_mfdataset('../outputs/histograms/Divided_histograms/salt/1001/*.nc')
+# ssaltds = xr.open_mfdataset('../outputs/histograms/Divided_histograms/ssquare/1001/*.nc')
+# svards = xr.open_mfdataset('../outputs/histograms/Divided_histograms/svar/1001/*.nc')
+
+# ds = xr.merge([volds, saltds, ssaltds, svards])
+ds = xr.open_mfdataset('../analysis/2d/z/*.nc')
 
 print('Calculating exchange flow')
 #Volume Flux - need to apply divergence here. Sign convention is EN+
@@ -78,10 +85,9 @@ ds = xr.merge([Qnet, Qin, Qout, Qsnet, Qsin, Qsout, Qssnet, Qssin, Qssout,
                Qsvarnet, Qsvarin, Qsvarout, sin, sout, ssin, ssout, svarin,
                svarout, voladv, saltadv, ssaltadv, svaradv], compat = 'override')
 
-Qsvarh_da.attrs['Description'] = 'Exchange flow Dataset'
-Qsvarh_da.attrs['Author'] = 'Dylan Schlichting'
-Qsvarh_da.attrs['Created'] = datetime.now().isoformat()
-Qsvarh_da.attrs['Grid'] = 'xi points: '+str(xislice)+', eta points: '+str(etaslice)
-Qsvarh_da.attrs['Salinity Bins'] = str(len(saltbins)-1)
+ds.attrs['Description'] = 'Exchange flow Dataset'
+ds.attrs['Author'] = 'Dylan Schlichting'
+ds.attrs['Created'] = datetime.now().isoformat()
 
-ds.to_netcdf('../outputs/transports/tef_eta170_175_xi140_145_jan_2010.nc')
+ds.to_netcdf('../analysis/2d/tef_nested_10min_xi_50_250_eta_150_350_z.nc')
+print('netcdf saved')
