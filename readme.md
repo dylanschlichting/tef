@@ -20,4 +20,6 @@ I've started looking at larger control volumes that are several hundred square k
 To make the code more efficient, I placed the common TEF functions in:
 
     functions.py
-I've also started looking at different normalization schemes too and other ways to bin the data. For example, binning in salinity and water parcel depth to gain some insight into the dynamics. Eventually, I'll merge this into functions.py. Coming soon - adding the integral relationships regarding entrainment and diffusive salt flux from Wang et al. (2017) JPO. The prelimary results of that can be seen in largecv/Budgets_2010.ipynbß
+I've also started looking at different normalization schemes too and other ways to bin the data. For example, binning in salinity and water parcel depth to gain some insight into the dynamics. Eventually, I'll merge this into functions.py. 
+
+Coming soon - adding the integral relationships regarding entrainment and diffusive salt flux from Wang et al. (2017) JPO. The prelimary results of that can be seen in largecv/Budgets_2010.ipynb. Last update - added binning fluxes by temperature and salinity following Lorenz et al. (2020) JGR. 

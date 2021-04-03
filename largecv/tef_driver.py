@@ -37,6 +37,9 @@ print('Isolating control volume and computing tracer fluxes')
 #Salinity for the four control surfaces 
 saltda = functions.salt_cv(ds, grid, xislice, etaslice)
 
+#Temperature for the four control surfaces 
+tempda = functions.temp_cv(ds, grid, xislice, etaslice)
+
 #Volume fluxes for the four control surfaces 
 Qda = functions.volume_flux(ds, xislice, etaslice) 
 
@@ -47,30 +50,38 @@ Qsda, Qssda = functions.salt_flux(saltda, Qda)
 svarda,Qsvarda = functions.Qcsvar_faces(ds, grid, saltda, Qda, xislice, etaslice) 
 
 saltbins = np.linspace(0,40,501) #number of salinity bins
+tempbins = np.linspace(0,40,501) #number of temperature bins
 
 #Calculate histograms of tracer transport for the control volume during summer.
-dates = np.arange('2010-01-01', '2011-01-01', dtype = 'datetime64[D]')
+dates = np.arange('2010-06-01', '2010-08-31', dtype = 'datetime64[D]')
 # dates = np.arange('2010-12-22', '2011-01-01', dtype = 'datetime64[D]')
 
 for d in range(len(dates)):
     saltdal = saltda.sel(ocean_time = str(dates[d])).load()
+    tempdal = tempda.sel(ocean_time = str(dates[d])).load()
     Qdal = Qda.sel(ocean_time = str(dates[d])).load()
     
-    Qh_da = functions.volflux_hist(saltbins, saltdal, Qdal)
+    Qh_da = functions.volflux_hist_2d(saltbins, tempbins, saltdal, tempdal, Qdal)
+#     Qh_da = functions.volflux_hist(saltbins, saltdal, tempdal, Qdal)
     
-    path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/vol/Q_histogram_2010_%s.nc' %d
+#     path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/vol/Q_histogram_2010_%s.nc' %d
+    path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/temp_sal/Q_histogram_2010_%s.nc' %d
     Qh_da.to_netcdf(path)
     
     Qsdal = Qsda.sel(ocean_time = str(dates[d])).load()
     
-    Qsh_da = functions.saltflux_hist(saltbins, saltdal, Qsdal)
-    path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/salt/Qs_histogram_2010_%s.nc' %d
+    Qsh_da = functions.saltflux_hist_2d(saltbins, tempbins, saltdal, tempdal, Qsdal)
+#     Qsh_da = functions.saltflux_hist(saltbins, saltdal, Qsdal)
+#     path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/salt/Qs_histogram_2010_%s.nc' %d
+    path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/temp_sal/Qs_histogram_2010_%s.nc' %d
     Qsh_da.to_netcdf(path)
     
     Qsvardal = Qsvarda.sel(ocean_time = str(dates[d])).load()
     
-    Qsvarh_da = functions.svarflux_hist(saltbins, saltdal, Qsvardal)
-    path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/svar/Qsvar_histogram_2010_%s.nc' %d
+    Qsvarh_da = functions.svarflux_hist_2d(saltbins, tempbins, saltdal, tempdal, Qsvardal)
+#     Qsvarh_da = functions.svarflux_hist(saltbins, saltdal, Qsvardal)
+#     path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/svar/Qsvar_histogram_2010_%s.nc' %d
+    path = '/scratch/user/dylan.schlichting/tef/largecv/histograms/temp_sal/Qsvar_histogram_2010_%s.nc' %d
     Qsvarh_da.to_netcdf(path)
     
 # Qsvarh_da = functions.svarflux_hist(saltbins, saltda.sel(ocean_time = '2010'), Qsvarda.sel(ocean_time = '2010'))

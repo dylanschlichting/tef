@@ -91,6 +91,41 @@ saltda: Xarray DataArray of salinity at the four horizontal control surfaces.
     saltda = xr.merge([sW, sE, sN, sS], compat='override') #salt data array aka saltda
     return saltda
 
+def temp_cv(ds, grid, xislice, etaslice):
+    '''
+Computes the boundary potential temperature of a control volume for ROMS model output. 
+-----
+Input: 
+ds - xarray roms dataset
+grid - xgcm grid of roms output
+xislice - slice object of desired xi points
+etaslice -slice object of desired eta points
+-----
+Output:
+tempda: Xarray DataArray of temperature at the four horizontal control surfaces. 
+    '''
+    tu = grid.interp(ds.temp, 'X')
+    tv = grid.interp(ds.temp, 'Y')
+
+    #Align the tracer at the control volume boundaries to account for the u/v points:
+    #subtract 1 point from the start of the u/v so there are no leaky corners
+    tu = tu.sel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop)) 
+    tv = tv.sel(eta_v = slice(etaslice.start-1, etaslice.stop), xi_rho = xislice)
+
+    tW = tu.isel(xi_u = 0) #West face of control volume
+    tE = tu.isel(xi_u = -1) #East face of control volume
+    tN = tv.isel(eta_v = -1) #North face of control volume
+    tS = tv.isel(eta_v = 0) #South face of control volume
+   
+    #DataArray Metadata
+    tW.name = 'tW'
+    tE.name = 'tE'
+    tN.name = 'tN'
+    tS.name = 'tS'
+    
+    tempda = xr.merge([tW, tE, tN, tS], compat='override') #salt data array aka saltda
+    return tempda
+
 def salt_flux(saltda, Qda):
     '''
 Computes the boundary salinity transport of a control volume for ROMS model output. 
@@ -438,6 +473,162 @@ Currently based on the sign method.
                    svarout, voladv, saltadv, svaradv], compat = 'override')
 
     return ds
+
+def volflux_hist_2d(saltbins, tempbins, saltda, tempda, Qda):
+    '''
+Computes volume transport weighted histograms for 3D control volume in salinity/temperature coordinates. Here, we consider the transport from four horizontal directions. 
+Dependent on the number of salinity bins, temperature bins, and the salinity at the four control surfaces.
+-------
+Input:
+saltbins - numpy array of number of salinity bins, e.g. np.linspace(0,40,101)
+tempbins - numpy array of number of temperature bins, e.g. np.linspace(0,40,101)
+saltda - Xarray DataArray of the salinity at the control surfaces
+Qda - Xarray DataArray of the volume transport at the control surfaces
+-------
+Output: 
+Qh_da - Xarray DataArray of volume transport weighted histograms
+    '''
+    QWh = histogram(saltda.sW, tempda.tW,
+                    bins = [saltbins, tempbins], 
+                    weights = Qda.QW,
+                    dim = ['s_rho', 'eta_rho'])
+    
+    QWh = QWh.rename({'sW_bin':'salt_bin'})
+    QWh = QWh.rename({'tW_bin':'temp_bin'})
+    QWh.name = 'QWh'
+    
+    QEh = histogram(saltda.sE, tempda.tE,
+                    bins = [saltbins, tempbins], 
+                    weights = Qda.QE,
+                    dim = ['s_rho', 'eta_rho'])
+    
+    QEh = QEh.rename({'sE_bin':'salt_bin'})
+    QEh = QEh.rename({'tE_bin':'temp_bin'})
+    QEh.name = 'QEh'
+    
+    QNh = histogram(saltda.sN, tempda.tN,
+                    bins = [saltbins, tempbins], 
+                    weights = Qda.QN,
+                    dim = ['s_rho', 'xi_rho'])
+    
+    QNh = QNh.rename({'sN_bin':'salt_bin'})
+    QNh = QNh.rename({'tN_bin':'temp_bin'})
+    QNh.name = 'QNh'
+    
+    QSh = histogram(saltda.sS, tempda.tS,
+                    bins = [saltbins, tempbins], 
+                    weights = Qda.QS,
+                    dim = ['s_rho', 'xi_rho'])
+    
+    QSh = QSh.rename({'sS_bin':'salt_bin'})
+    QSh = QSh.rename({'tS_bin':'temp_bin'})
+    QSh.name = 'QSh'
+    
+    Qh_da = xr.merge([QWh, QEh, QNh, QSh], compat = 'override') #Data array of volume transport histograms
+    return Qh_da
+
+def saltflux_hist_2d(saltbins, tempbins, saltda, tempda, Qsda):
+    '''
+Computes salinity transport weighted histograms for 3D control volume in salinity and temperature coordinates. Here, we consider the transport from four horizontal directions. Dependent on the number of salinity bins, and the salinity transport at the four control surfaces.
+-------
+Input:
+saltbins - numpy array of number of salinity bins, e.g. np.linspace(0,40,101)
+tempbins - numpy array of number of temperature bins, e.g. np.linspace(0,40,101)
+saltda - Xarray DataArray of the salinity at the control surfaces
+Qsda - Xarray DataArray of the salinity transport at the control surfaces
+-------
+Output: 
+Qsh_da - Xarray DataArray of salinity transport weighted histograms
+    '''
+    QsWh = histogram(saltda.sW, tempda.tW,
+                     bins = [saltbins, tempbins], 
+                     weights = Qsda.QsW,
+                     dim = ['s_rho', 'eta_rho'])
+    
+    QsWh = QsWh.rename({'sW_bin':'salt_bin'})
+    QsWh = QsWh.rename({'tW_bin':'temp_bin'})
+    QsWh.name = 'QsWh'
+    
+    QsEh = histogram(saltda.sE, tempda.tE,
+                     bins = [saltbins, tempbins], 
+                     weights = Qsda.QsE,
+                     dim = ['s_rho', 'eta_rho'])
+    
+    QsEh = QsEh.rename({'sE_bin':'salt_bin'})
+    QsEh = QsEh.rename({'tE_bin':'temp_bin'})
+    QsEh.name = 'QsEh'
+    
+    QsNh = histogram(saltda.sN, tempda.tN,
+                     bins = [saltbins, tempbins], 
+                     weights = Qsda.QsN,
+                     dim = ['s_rho', 'xi_rho'])
+    
+    QsNh = QsNh.rename({'sN_bin':'salt_bin'})
+    QsNh = QsNh.rename({'tN_bin':'temp_bin'})
+    QsNh.name = 'QsNh'
+    
+    QsSh = histogram(saltda.sS, tempda.tS,
+                     bins = [saltbins, tempbins], 
+                     weights = Qsda.QsS,
+                     dim = ['s_rho', 'xi_rho'])
+    QsSh = QsSh.rename({'sS_bin':'salt_bin'})
+    QsSh = QsSh.rename({'tS_bin':'temp_bin'})
+    QsSh.name = 'QsSh'
+    
+    Qsh_da = xr.merge([QsWh, QsEh, QsNh, QsSh], compat = 'override') #Data array of salinity transport histograms
+    return Qsh_da
+
+def svarflux_hist_2d(saltbins, tempbins, saltda, tempda, Qsvarda):
+    '''
+Computes salinity variance transport weighted histograms for 3D control volume in salinity and temperature coordinates. Here, we consider the transport from four horizontal directions. Dependent on the number of salinity bins, and the salinity/salinity variance transport at the four control surfaces.
+-------
+Input:
+saltbins - numpy array of number of salinity bins, e.g. np.linspace(0,40,101)
+tempbins - numpy array of number of temperature bins, e.g. np.linspace(0,40,101)
+saltda - Xarray DataArray of the salinity at the control surfaces
+Qsvarda - Xarray DataArray of the salinity variance transport at the control surfaces
+-------
+Output: 
+Qsvarh_da - Xarray DataArray of salinity variance transport weighted histograms
+    '''
+    QsvarWh = histogram(saltda.sW, tempda.tW,
+                        bins = [saltbins, tempbins], 
+                        weights = Qsvarda.QsvarW,
+                        dim = ['s_rho', 'eta_rho'])
+    
+    QsvarWh = QsvarWh.rename({'sW_bin':'salt_bin'})
+    QsvarWh = QsvarWh.rename({'tW_bin':'temp_bin'})
+    QsvarWh.name = 'QsvarWh'
+    
+    QsvarEh = histogram(saltda.sE, tempda.tE,
+                        bins = [saltbins, tempbins], 
+                        weights = Qsvarda.QsvarE,
+                        dim = ['s_rho', 'eta_rho'])
+    
+    QsvarEh = QsvarEh.rename({'sE_bin':'salt_bin'})
+    QsvarEh = QsvarEh.rename({'tE_bin':'temp_bin'})
+    QsvarEh.name = 'QsvarEh'
+    
+    QsvarNh = histogram(saltda.sN, tempda.tN,
+                        bins = [saltbins, tempbins], 
+                        weights = Qsvarda.QsvarN,
+                        dim = ['s_rho', 'xi_rho'])
+    
+    QsvarNh = QsvarNh.rename({'sN_bin':'salt_bin'})
+    QsvarNh = QsvarNh.rename({'tN_bin':'temp_bin'})
+    QsvarNh.name = 'QsvarNh'
+    
+    QsvarSh = histogram(saltda.sS, tempda.tS,
+                        bins = [saltbins, tempbins],
+                        weights = Qsvarda.QsvarS,
+                        dim = ['s_rho', 'xi_rho'])
+    
+    QsvarSh = QsvarSh.rename({'sS_bin':'salt_bin'})
+    QsvarSh = QsvarSh.rename({'tS_bin':'temp_bin'})
+    QsvarSh.name = 'QsvarSh'
+    
+    Qsvarh_da = xr.merge([QsvarWh, QsvarEh, QsvarNh, QsvarSh]) #Data array of salinity variance transport histograms
+    return Qsvarh_da
 
 #End of direct TEF functions. Next, move into the tracer budgets
 #----------------------------------------------------------------------------------------------
