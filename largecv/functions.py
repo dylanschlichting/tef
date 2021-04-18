@@ -1,7 +1,8 @@
 '''
 Contains functions used to compute transport weighted histograms of a tracer, c for a control volume specified by slices
 in the xi and eta direction. The first set of functions are designed for flows with no normalization scheme so that the 
-user can see how closed the tracer budgets are. 
+user can see how closed the tracer budgets are. I also recently added functions for computing TEF and temperature + salinity 
+coordinates. Last, I recently added functions to subset the control volume into four separate boxes. 
 '''
 
 import numpy as np
@@ -40,8 +41,8 @@ Qds: Xarray Dataset of volume transport at the four horizontal control surfaces.
     Qu = ds.dz_u*ds.dy_u*ds.u
     Qv = ds.dz_v*ds.dx_v*ds.v
 
-    Qu = Qu.sel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop))
-    Qv = Qv.sel(eta_v = slice(etaslice.start-1, etaslice.stop), xi_rho = xislice)
+    Qu = Qu.isel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop-1))
+    Qv = Qv.isel(eta_v = slice(etaslice.start-1, etaslice.stop-1), xi_rho = xislice)
 
     QW = Qu.isel(xi_u = 0) #West face of control volume
     QE = Qu.isel(xi_u = -1) #East face of control volume
@@ -707,6 +708,54 @@ chih: histogram of salinity variance dissipation in salinity coordinates
     chih.name = 'chi'
     return chih
 
+def chi_ts(ds, grid, xislice, etaslice, saltbins, tempbins):
+    '''
+Computes the destruction of salinity variance, denoted by chi. For the TXLA model, 
+the vertical mixing term dominates. However, I may do some experiments in the future
+to test the variability of horizontal mixing. See Burchard and Rennau (2008) for more details. 
+-----
+Input: 
+ds - xarray dataset
+grid - xgcm grid
+xislice - slice object of desired xi grid points
+etaslice - slice object of desired eta grid points
+saltbins - array of salinity bins. e.g. np.linspace(0,40,101)
+tempbins - array of temperature bins. e.g. np.linspace(0,40,101)
+-----
+Output:
+chih: histogram of salinity variance dissipation in salinity and temperature coordinates 
+    '''
+    
+    #Compute the vertical salinity gradient
+    dsdz = grid.derivative(ds.salt, 'Z', boundary = 'extend') 
+
+    #salinity variance dissipation - denoted by chi.
+    chi = 2*(ds.AKs*(dsdz**2)).isel(eta_rho = etaslice, 
+                                    xi_rho = xislice) 
+
+    dV = (ds.dx*ds.dy*ds.dz).isel(eta_rho = etaslice, 
+                                  xi_rho = xislice)
+
+    #Interpolate to get chi on the rho points (from the w points)
+    chiint = grid.interp(chi, 'Z')
+    chivint = chiint*dV
+    chi = chivint.rename('chi')
+    
+    chi.attrs = ''
+    salt = ds.salt.isel(xi_rho = xislice, eta_rho = etaslice)
+    salt.attrs = ''
+ 
+    temp = ds.temp.isel(xi_rho = xislice, eta_rho = etaslice)
+    temp.attrs = ''
+    
+    chih = histogram(salt,temp, 
+                     bins = [saltbins, tempbins], 
+                     weights = chi,
+                     dim = ['s_rho', 'eta_rho', 'xi_rho']
+                    )
+    chih.name = 'chi'
+    return chih
+
 #---
 #Start of plotting functions
 def shelfplot(ds, figsize, var, cmap, extent, vmin, vmax):
@@ -771,3 +820,210 @@ Returned figure
     gl.yformatter = LATITUDE_FORMATTER
     gl.right_labels = False
     gl.top_labels = False
+    
+#---------------
+#Start of TEF tracer fluxes for a subsetted control volume. This is a work in progress and will be updated frequently in the next few weeks. 
+def box_subset(xislice, etaslice, nx, ny):
+    '''
+Subsets roms model output and xgcm grid to four equal boxes of TXLA model output based on a larger control volume. To do - automate for nxm boxes, but for now 4 is good. Will add comments once code is automated.
+-----
+Inputs:
+xislice - xi_rho points of dataset
+etaslice - eta_rho points of dataset
+nx - number of interior boundaries in the xi direction
+ny - number of interior boundaries in the eta direction
+------
+Outputs:
+dssubset - subsetted data array into (nx *ny) boxes
+grid - subsetted xgcm grid 
+    '''
+    dx = int(np.ceil((xislice.stop-xislice.start)/nx))
+    dy = int(np.ceil((etaslice.stop-etaslice.start)/ny))
+
+    xislices = [slice(xislice.start, xislice.stop-dx), 
+                slice(xislice.stop-dx-1, xislice.stop)]
+    etaslices = [slice(etaslice.start, etaslice.stop-dy), 
+                slice(etaslice.stop-dy-1, etaslice.stop)]
+
+    coords = {
+            "X": {"center": "xi_rho", "left": "xi_u"},
+            "Y": {"center": "eta_rho", "left": "eta_v"},
+            "Z": {"center": "s_rho", "outer": "s_w"},
+        }
+
+    dssubset = []
+    for x in range(len(xislices)):
+        for y in range(len(etaslices)):
+            dssubset.append(ds.isel(xi_rho = xislices[x], xi_u = slice(xislices[x].start-1, xislices[x].stop-1),
+                                    eta_rho = etaslices[y], eta_v = slice(etaslices[y].start-1, etaslices[y].stop-1)))
+    grid = []
+    for i in range(len(dssubset)):    
+        grid.append(xgcm.Grid(dssubset[i], coords=coords, periodic=[]))
+        
+    return dssubset, grid
+
+def volume_flux_subset(ds):
+    '''
+Computes the boundary volume transport of a subsetted control volume for ROMS model output. 
+-----
+Input: 
+ds - xarray roms dataset
+-----
+Output:
+Qds: Xarray Dataset of volume transport at the four horizontal control surfaces. 
+    '''
+    Qu = ds.dz_u*ds.dy_u*ds.u
+    Qv = ds.dz_v*ds.dx_v*ds.v
+
+    QW = Qu.isel(xi_u = 0) #West face of control volume
+    QE = Qu.isel(xi_u = -1) #East face of control volume
+    QN = Qv.isel(eta_v = -1) #North face of control volume
+    QS = Qv.isel(eta_v = 0) #South face of control volume
+    
+    QW.name = 'QW'
+    QE.name = 'QE'
+    QN.name = 'QN'
+    QS.name = 'QS'
+    
+    Qda = xr.merge([QW, QE, QN, QS], compat='override') #volume flux data array >> Qda
+    return Qda
+
+def salt_cv_subset(ds, grid):
+    '''
+Computes the boundary salinity of a subsetted control volume for ROMS model output. 
+-----
+Input: 
+ds - xarray roms dataset
+grid - xgcm grid of roms output
+-----
+Output:
+saltda: Xarray DataArray of salinity at the four horizontal control surfaces. 
+    '''
+    su = grid.interp(ds.salt, 'X', boundary = 'extrapolate')
+    sv = grid.interp(ds.salt, 'Y', boundary = 'extrapolate')
+
+    sW = su.isel(xi_u = 0) #West face of control volume
+    sE = su.isel(xi_u = -1) #East face of control volume
+    sN = sv.isel(eta_v = -1) #North face of control volume
+    sS = sv.isel(eta_v = 0) #South face of control volume
+   
+    #DataArray Metadata
+    sW.name = 'sW'
+    sE.name = 'sE'
+    sN.name = 'sN'
+    sS.name = 'sS'
+    
+    saltda = xr.merge([sW, sE, sN, sS], compat='override') #salt data array aka saltda
+    return saltda
+
+def temp_cv_subset(ds, grid):
+    '''
+Computes the boundary potential temperature of a subsetted control volume for ROMS model output. 
+-----
+Input: 
+ds - xarray roms dataset
+grid - xgcm grid of roms output
+-----
+Output:
+tempda: Xarray DataArray of temperature at the four horizontal control surfaces. 
+    '''
+    tu = grid.interp(ds.temp, 'X', boundary = 'extrapolate')
+    tv = grid.interp(ds.temp, 'Y', boundary = 'extrapolate')
+
+    tW = tu.isel(xi_u = 0) #West face of control volume
+    tE = tu.isel(xi_u = -1) #East face of control volume
+    tN = tv.isel(eta_v = -1) #North face of control volume
+    tS = tv.isel(eta_v = 0) #South face of control volume
+   
+    #DataArray Metadata
+    tW.name = 'tW'
+    tE.name = 'tE'
+    tN.name = 'tN'
+    tS.name = 'tS'
+    
+    tempda = xr.merge([tW, tE, tN, tS], compat='override') #salt data array aka saltda
+    return tempda
+
+def salt_flux_subset(saltda, Qda):
+    '''
+Computes the boundary salinity transport of a subsetted control volume for ROMS model output. 
+-----
+Input: 
+saltda - Xarray DataArray of the salinity at the boundaries
+Qda - Xarray DataArray of the voume flux at the boundaries
+-----
+Output:
+Qsda: Xarray DataArray of salinity transport at the four horizontal control surfaces. 
+Qssda: Xarray DataArray of salinity squared transport at the four horizontal control surfaces. 
+    '''
+    QsW = saltda.sW*Qda.QW
+    QsE = saltda.sE*Qda.QE
+    QsN = saltda.sN*Qda.QN
+    QsS = saltda.sS*Qda.QS
+    
+    QsW.name = 'QsW'
+    QsE.name = 'QsE'
+    QsN.name = 'QsN'
+    QsS.name = 'QsS'
+    
+    QssW = (saltda.sW)**2*Qda.QW
+    QssE = (saltda.sE)**2*Qda.QE
+    QssN = (saltda.sN)**2*Qda.QN
+    QssS = (saltda.sS)**2*Qda.QS
+    
+    QssW.name = 'QssW'
+    QssE.name = 'QssE'
+    QssN.name = 'QssN'
+    QssS.name = 'QssS'
+    
+    Qsda = xr.merge([QsW, QsE, QsN, QsS], compat='override')
+    Qssda = xr.merge([QssW, QssE, QssN, QssS], compat='override')
+    
+    return Qsda, Qssda
+
+def Qcsvar_faces(ds, grid, saltda, Qda):
+    '''
+Computes the boundary fluxes of salinity variance for a control volume of ROMS output. 
+-----
+Input: 
+ds - xarray dataset
+grid - xgcm grid
+saltda - salinity at each face of the control volume
+Qda - volume flux at each face of the control volume
+-----
+Output:
+Qsvarda: salinity variance transport at each face of the control volume
+svarda: salinity variance at each face of the control volume
+    '''
+    
+    dV = (ds.dx*ds.dy*ds.dz)
+ 
+    V = dV.sum(dim = ['eta_rho', 's_rho', 'xi_rho'])
+   
+    salt = ds.salt
+    sbar = (1/V)*(salt*dV).sum(dim = ['eta_rho', 'xi_rho','s_rho'])
+
+    svarW = ((saltda.sW-sbar)**2)
+    svarE = ((saltda.sE-sbar)**2)
+    svarN = ((saltda.sN-sbar)**2)
+    svarS = ((saltda.sS-sbar)**2)
+
+    QsvarW = Qda.QW*svarW
+    QsvarE = Qda.QE*svarE
+    QsvarN = Qda.QN*svarN
+    QsvarS = Qda.QS*svarS
+    
+    QsvarW.name = 'QsvarW'
+    QsvarE.name = 'QsvarE'
+    QsvarN.name = 'QsvarN'
+    QsvarS.name = 'QsvarS'
+
+    svarW.name = 'svarW'
+    svarE.name = 'svarE'
+    svarN.name = 'svarN'
+    svarS.name = 'svarS'
+    
+    svarda = xr.merge([svarW, svarE, svarN, svarS], compat='override')
+    Qsvarda = xr.merge([QsvarW, QsvarE, QsvarN, QsvarS], compat='override')
+    
+    return svarda,Qsvarda
