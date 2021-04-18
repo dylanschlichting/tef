@@ -74,9 +74,9 @@ saltda: Xarray DataArray of salinity at the four horizontal control surfaces.
     sv = grid.interp(ds.salt, 'Y')
 
     #Align the tracer at the control volume boundaries to account for the u/v points:
-    #subtract 1 point from the start of the u/v so there are no leaky corners
-    su = su.sel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop)) 
-    sv = sv.sel(eta_v = slice(etaslice.start-1, etaslice.stop), xi_rho = xislice)
+    #subtract 1 point from the start and stop of the u/v so there are no leaky corners
+    su = su.isel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop-1)) 
+    sv = sv.isel(eta_v = slice(etaslice.start-1, etaslice.stop-1), xi_rho = xislice)
 
     sW = su.isel(xi_u = 0) #West face of control volume
     sE = su.isel(xi_u = -1) #East face of control volume
@@ -109,9 +109,9 @@ tempda: Xarray DataArray of temperature at the four horizontal control surfaces.
     tv = grid.interp(ds.temp, 'Y')
 
     #Align the tracer at the control volume boundaries to account for the u/v points:
-    #subtract 1 point from the start of the u/v so there are no leaky corners
-    tu = tu.sel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop)) 
-    tv = tv.sel(eta_v = slice(etaslice.start-1, etaslice.stop), xi_rho = xislice)
+    #subtract 1 point from the start and stop of the u/v so there are no leaky corners
+    tu = tu.isel(eta_rho = etaslice, xi_u = slice(xislice.start-1, xislice.stop-1)) 
+    tv = tv.isel(eta_v = slice(etaslice.start-1, etaslice.stop-1), xi_rho = xislice)
 
     tW = tu.isel(xi_u = 0) #West face of control volume
     tE = tu.isel(xi_u = -1) #East face of control volume
@@ -184,10 +184,6 @@ svarda: salinity variance at each face of the control volume
     #Note we need to adjust the slices in the xi and eta slices for the salinity variance budget.
     #Since we are computing the volume averaged variance, add 1 point to the stopping slices so 
     #dsvardt matches up with the fluxes. Drawing a picture of the grid is really helpful for this. 
-#     xislice = slice(xislice.start, xislice.stop+1)
-#     etaslice = slice(etaslice.start, etaslice.stop+1)
-    xislice=slice(260,381) 
-    etaslice=slice(47,149)
     
     dV = (ds.dx*ds.dy*ds.dz).isel(eta_rho = etaslice, 
                                   xi_rho = xislice)
